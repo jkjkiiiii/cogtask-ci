@@ -1,0 +1,11 @@
+include README.md LICENSE THIRD_PARTY_NOTICES.md CITATION.cff CONTRIBUTING.md
+recursive-include docs *.md
+recursive-include examples *.json *.ipynb
+recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include .github *.yml
+recursive-exclude results *
+recursive-exclude local_data *
+exclude CHANGELOG.md LICENSE_STATUS.md
+exclude docs/paper_alignment.md docs/method_and_provenance.md docs/validation.md docs/review_*.md docs/release.md
+global-exclude __pycache__ *.py[cod]

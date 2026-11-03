@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.ipynb_checkpoints/
+results/
+local_data/
+*.joblib
+*.npz
+releases/
+
+# Internal manuscript/release preparation material (kept outside this repo)
+CHANGELOG.md
+LICENSE_STATUS.md
+docs/paper_alignment.md
+docs/method_and_provenance.md
+docs/validation.md
+docs/review_*.md
+docs/release.md
+local_notes/
+*.log
+.env
+.env.*
+!.env.example

@@ -1,0 +1,9 @@
+{
+  "outer_folds": 5,
+  "inner_folds": 3,
+  "repeats": 1,
+  "seed": 42,
+  "bootstrap": 2000,
+  "token_budget": null,
+  "lowercase": false
+}

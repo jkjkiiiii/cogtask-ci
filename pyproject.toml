@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cogtask-ci"
+version = "0.1.0"
+description = "Multi-task text evaluation for cognitive impairment research"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = ["numpy>=1.24,<3", "scipy>=1.10,<2", "scikit-learn>=1.4,<1.8", "matplotlib>=3.7,<4"]
+
+[project.optional-dependencies]
+notebook = ["jupyterlab>=4,<5", "nbformat>=5,<6", "nbconvert>=7,<8", "ipykernel>=6,<7"]
+dev = ["build>=1,<2", "PyYAML>=6,<7"]
+
+[project.scripts]
+cogtask-ci = "cogtask_ci.cli:main"
+
+[project.urls]
+Repository = "https://github.com/jkjkiiiii/cogtask-ci"
+Issues = "https://github.com/jkjkiiiii/cogtask-ci/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
