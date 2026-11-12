@@ -10,6 +10,8 @@ CogTask-CI is a research toolkit for evaluating task combinations on your own au
 
 The [0.2.0 candidate changes](docs/changes_0_2.md) add frozen-prediction replay, reference-aware selection, paired comparisons and optional frozen text embeddings.
 
+The [complete synthetic factorial](docs/synthetic_factorial.md) provides 36 conditions across 30 dataset seeds, with reproducible aggregate results and task-selection frequencies.
+
 ## See what the toolkit does
 
 ![Four synthetic examples: complementary signals, duplicated information, information beyond response quantity and no designed label signal](docs/assets/showcase.png)

@@ -19,3 +19,13 @@ The main summary CSV uses each generated dataset as one independent replicate. M
 The existing [four-scenario showcase](examples.md) additionally retains a completely uninformative label example. It is distinct from the factorial's no-information-added-task condition, where task A still carries signal.
 
 The [evaluation reference](reference_evaluation.md) documents hash-based resume and optional protocol/code identifiers. For a quick check, fit a stable slice with `--start-index` and `--limit`; the full summary remains explicitly incomplete until every required condition and seed is present.
+
+## Completed synthetic example
+
+The supplied artifacts contain all 1,080 datasets and 2,160 text/quantity arm replays. Each condition has all 30 generation seeds. Exact-duplicate tasks produce zero difference between the two pair-selection policies in every condition; the quantity-only model is at AUROC 0.5 when the quantity signal is absent. These are checks of the artificial design and implementation.
+
+![Mean policy differences across the complete artificial factorial](assets/factorial.svg)
+
+[Aggregate metrics](assets/factorial_summary.csv) · [Task-selection frequencies](assets/factorial_task_selection.csv) · [Design and source versions](assets/factorial_config.json)
+
+The cells show means across dataset seeds. They are not participant confidence intervals, clinical outcomes, or a guarantee that one selection policy wins in another dataset. The CSV retains all conditions and across-seed dispersion.
