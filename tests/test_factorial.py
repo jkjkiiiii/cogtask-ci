@@ -17,6 +17,18 @@ from cogtask_ci.factorial import (
 
 
 class SyntheticFactorial(unittest.TestCase):
+    def test_driver_commit_is_recorded_and_required_for_resume(self):
+        with tempfile.TemporaryDirectory() as td:
+            context = {"driver_git_commit": "a" * 40}
+            run_factorial(td, subjects=40, seed_values=(42,),
+                          conditions=factorial_conditions()[:1], provenance_context=context)
+            result = json.loads(next(Path(td).glob('*/result.json')).read_text(encoding='utf-8'))
+            self.assertEqual(result['driver_git_commit'], context['driver_git_commit'])
+            with self.assertRaisesRegex(ValueError, 'provenance differs'):
+                run_factorial(td, subjects=40, seed_values=(42,),
+                              conditions=factorial_conditions()[:1],
+                              provenance_context={"driver_git_commit": "b" * 40})
+
     def test_fixed_grid_and_seed_list(self):
         conditions = factorial_conditions()
         self.assertEqual(len(conditions), 36)

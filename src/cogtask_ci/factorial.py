@@ -193,7 +193,7 @@ def run_factorial(output, *, start_index=0, limit=None, seed_values=FACTORIAL_SE
     if config.repeats != 1:
         raise ValueError("The factorial seed is the replication unit; set repeats=1")
     provenance_context = dict(provenance_context or {})
-    allowed_context = {"protocol_sha256", "protocol_git_commit", "code_git_commit"}
+    allowed_context = {"protocol_sha256", "protocol_git_commit", "code_git_commit", "driver_git_commit"}
     if set(provenance_context) - allowed_context:
         raise ValueError("provenance_context may contain only protocol and code commit identifiers")
 
