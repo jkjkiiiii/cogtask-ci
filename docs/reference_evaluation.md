@@ -67,6 +67,17 @@ cogtask-ci factorial --output results/factorial --start-index 0 --limit 9 \
 
 Omitting `--start-index` and `--limit` runs all 1,080 synthetic conditions. Each completed run stores its synthetic JSONL input, `text_bundle.json`, `quantity_bundle.json`, and `result.json` with data/configuration/code hashes, environment, timestamp and supplied protocol/code identifiers. These outputs are local artifacts, not clinical results.
 
+Replay and aggregate completed fit bundles with the public summary module:
+
+```console
+python -m cogtask_ci.factorial_summary results/factorial \
+  --output results/factorial_summary
+```
+
+The default expects all 36 conditions and 30 generation seeds (1,080 runs), and draws 1,000 random pair policies per arm. For a smaller fixture or partial sweep, call `summarize_factorial` from Python and supply its `expected_seeds`, `expected_runs`, and `expected_conditions`. The summary writes per-run metrics, task-selection counts, selection frequencies across seeds, and condition-level mean, sample SD, and quantiles. It reports E1 pair comparisons, E2 pair-selection and random-policy summaries, and E3 AUROC/Brier alongside selected task count and token burden relative to the best single task. A condition with missing runs remains explicitly incomplete; across-seed spread is not a participant-level confidence interval.
+
+Replay caches are accepted only when the input bundle hash and replay-source hash match. The module can reuse `arm_replays/<run_id>__<arm>.json` artifacts produced by the private sweep driver when they carry those same provenance fields.
+
 For the task-signal generator and runner from Python:
 
 ```python

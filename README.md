@@ -8,6 +8,8 @@ Evaluate the predictive value and complementarity of multiple text tasks with pa
 
 CogTask-CI is a research toolkit for evaluating task combinations on your own authorized text data. See [related publication](docs/related_publication.md) for the associated article title.
 
+The [0.2.0 candidate changes](docs/changes_0_2.md) add frozen-prediction replay, reference-aware selection, paired comparisons and optional frozen text embeddings.
+
 ## See what the toolkit does
 
 ![Four synthetic examples: complementary signals, duplicated information, information beyond response quantity and no designed label signal](docs/assets/showcase.png)

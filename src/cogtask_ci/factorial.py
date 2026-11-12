@@ -138,11 +138,19 @@ def _environment():
 
 def _atomic_json(path, value):
     path = Path(path)
+    data = (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8")
+    _atomic_bytes(path, data)
+
+
+def _atomic_bytes(path, data):
+    """Replace a checkpoint atomically; a leftover .tmp is never an artifact."""
+    path = Path(path)
     temporary = path.with_name(path.name + ".tmp")
     if temporary.exists():
         temporary.unlink()
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
-                         encoding="utf-8")
+    with temporary.open("wb") as handle:
+        handle.write(data)
+        handle.flush()
     temporary.replace(path)
 
 
@@ -203,6 +211,7 @@ def run_factorial(output, *, start_index=0, limit=None, seed_values=FACTORIAL_SE
         condition_value = dict(condition)
         run_id = condition_id(seed, condition_value)
         run_dir = output / run_id
+        resumed_run = run_dir.exists()
         records = generate_factorial_records(subjects=subjects, seed=seed, **condition_value)
         input_bytes = records_to_jsonl(records)
         input_hash = _sha256(input_bytes)
@@ -223,43 +232,74 @@ def run_factorial(output, *, start_index=0, limit=None, seed_values=FACTORIAL_SE
             "protocol_sha256": provenance_context.get("protocol_sha256"),
             "protocol_git_commit": provenance_context.get("protocol_git_commit"),
             "code_git_commit": provenance_context.get("code_git_commit"),
+            "driver_git_commit": provenance_context.get("driver_git_commit"),
             "code_commit": provenance_context.get("code_git_commit"),
             "environment": _environment(),
         }
-        allowed_files = {"input.jsonl", "text_bundle.json", "quantity_bundle.json", "result.json"}
+        bundle_names = {arm: arm + "_bundle.json" for arm in ("text", "quantity")}
+        allowed_files = {"input.jsonl", "result.json", "input.jsonl.tmp", "result.json.tmp"}
+        allowed_files.update(bundle_names.values())
+        allowed_files.update(name + ".tmp" for name in bundle_names.values())
         if run_dir.exists():
             if not run_dir.is_dir():
                 raise ValueError("Condition path exists and is not a directory: " + run_id)
             unexpected = {p.name for p in run_dir.iterdir()} - allowed_files
             if unexpected:
                 raise ValueError("Unexpected files in resumable run " + run_id + ": " + ",".join(sorted(unexpected)))
+            # Atomic-write temporaries can only be incomplete files from an
+            # interrupted write. Their canonical counterparts are validated
+            # below or regenerated from the deterministic run inputs.
+            for name in allowed_files:
+                if name.endswith(".tmp"):
+                    temporary = run_dir / name
+                    if temporary.exists():
+                        temporary.unlink()
             result_path = run_dir / "result.json"
+            input_path = run_dir / "input.jsonl"
+            if input_path.exists() and _sha256(input_path.read_bytes()) != input_hash:
+                raise ValueError("Existing synthetic input changed: " + run_id)
+            if not input_path.exists():
+                _atomic_bytes(input_path, input_bytes)
             if result_path.exists():
                 result = _read_json(result_path)
                 for key, value in expected.items():
                     if result.get(key) != value:
                         raise ValueError("Existing run provenance differs for " + run_id + ": " + key)
                 if result.get("status") == "complete":
+                    from .replay import load_bundle
                     for arm in ("text", "quantity"):
-                        bundle_path = run_dir / (arm + "_bundle.json")
+                        bundle_path = run_dir / bundle_names[arm]
                         if not bundle_path.is_file() or _sha256(bundle_path.read_bytes()) != result.get("bundle_sha256", {}).get(arm):
                             raise ValueError("Completed run has a missing or changed replay bundle: " + run_id)
+                        load_bundle(bundle_path)
                     summaries.append({"run_id": run_id, "status": "complete", "resumed": True})
                     continue
                 if result.get("status") not in {"running", "failed"}:
                     raise ValueError("Cannot resume this run state: " + run_id)
+                bundle_hashes = result.get("bundle_sha256", {})
+                if not isinstance(bundle_hashes, dict) or set(bundle_hashes) - set(bundle_names):
+                    raise ValueError("Invalid bundle hash checkpoint for " + run_id)
+                if any(not isinstance(digest, str) or len(digest) != 64
+                       or any(char not in "0123456789abcdef" for char in digest)
+                       for digest in bundle_hashes.values()):
+                    raise ValueError("Invalid bundle hash checkpoint for " + run_id)
             else:
-                raise ValueError("Existing run has no result.json and cannot be resumed safely: " + run_id)
-            input_path = run_dir / "input.jsonl"
-            if input_path.exists() and _sha256(input_path.read_bytes()) != input_hash:
-                raise ValueError("Existing synthetic input changed: " + run_id)
+                # A process can stop after creating its deterministic input
+                # and bundles but before committing result.json. No bundle
+                # from this state is trusted; each arm is regenerated below.
+                started = datetime.now(timezone.utc).isoformat()
+                result = {**expected, "status": "running", "started_at_utc": started,
+                          "timestamp_utc": started, "bundle_sha256": {}}
+                _atomic_json(result_path, result)
+                bundle_hashes = {}
         else:
             run_dir.mkdir()
-            (run_dir / "input.jsonl").write_bytes(input_bytes)
+            _atomic_bytes(run_dir / "input.jsonl", input_bytes)
             started = datetime.now(timezone.utc).isoformat()
             _atomic_json(run_dir / "result.json", {**expected, "status": "running",
                                                    "started_at_utc": started,
-                                                   "timestamp_utc": started})
+                                                   "timestamp_utc": started,
+                                                   "bundle_sha256": {}})
 
         input_path = run_dir / "input.jsonl"
         if not input_path.exists():
@@ -280,19 +320,30 @@ def run_factorial(output, *, start_index=0, limit=None, seed_values=FACTORIAL_SE
             assignments = outer_assignments(subject_ids, complete, labels, config)
             preflight(records, assignments, config)
             for arm in ("text", "quantity"):
-                bundle_path = run_dir / (arm + "_bundle.json")
-                if bundle_path.exists():
-                    if arm not in bundle_hashes or _sha256(bundle_path.read_bytes()) != bundle_hashes[arm]:
-                        raise ValueError("Untracked or changed partial bundle prevents safe resume: " + run_id)
+                bundle_path = run_dir / bundle_names[arm]
+                if bundle_path.exists() and arm in bundle_hashes:
+                    if _sha256(bundle_path.read_bytes()) != bundle_hashes[arm]:
+                        raise ValueError("Changed partial bundle prevents safe resume: " + run_id)
+                    from .replay import load_bundle
+                    load_bundle(bundle_path)
                     continue
                 collected = {}
                 run_arm(records, arm, config, assignments, _QuietLogger(),
                         replay_collector=collected)
                 bundle_bytes = _canonical_bytes(collected[arm]) + b"\n"
-                bundle_path.write_bytes(bundle_bytes)
-                bundle_hashes[arm] = _sha256(bundle_bytes)
+                from .replay import load_bundle
+                load_bundle(collected[arm])
+                generated_hash = _sha256(bundle_bytes)
+                expected_hash = bundle_hashes.get(arm)
+                if expected_hash is not None and generated_hash != expected_hash:
+                    raise ValueError("Regenerated bundle differs from its checkpoint: " + run_id)
+                # Record intent before replacing the bundle. If interrupted
+                # between these writes, resume regenerates the bundle and
+                # checks it against this deterministic expected hash.
+                bundle_hashes[arm] = generated_hash
                 result["bundle_sha256"] = dict(bundle_hashes)
                 _atomic_json(result_path, result)
+                _atomic_bytes(bundle_path, bundle_bytes)
 
             result.update(expected)
             result["status"] = "complete"
@@ -309,6 +360,6 @@ def run_factorial(output, *, start_index=0, limit=None, seed_values=FACTORIAL_SE
             result["bundle_sha256"] = bundle_hashes
             _atomic_json(result_path, result)
             raise
-        summaries.append({"run_id": run_id, "status": "complete", "resumed": False})
+        summaries.append({"run_id": run_id, "status": "complete", "resumed": resumed_run})
     return summaries
 

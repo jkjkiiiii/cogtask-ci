@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from cogtask_ci import Config, evaluate
-from cogtask_ci.cli import _paired_policy_difference, main
+from cogtask_ci.cli import _compare_bundle_design, _paired_policy_difference, main
 from cogtask_ci.demo import generate_demo
 from cogtask_ci.data import Record, records_to_jsonl
 from cogtask_ci.evaluation import validate_total_token_budget
@@ -16,6 +16,49 @@ from cogtask_ci.replay import apply_bundle, load_bundle
 
 
 class ReplayIntegration(unittest.TestCase):
+    def test_bundle_comparison_requires_same_foldwise_population_and_task_axis(self):
+        labels = {"a": 0, "b": 0, "c": 1, "d": 1,
+                  "e": 0, "f": 0, "g": 1, "h": 1}
+
+        def make_bundle(test_groups, *, reverse_rows=False, tasks=None):
+            tasks = list(tasks or ["task_a", "task_b"])
+            folds = []
+            all_subjects = sorted(labels)
+            for outer_fold, test_group in enumerate(test_groups):
+                test_subjects = list(test_group)
+                inner_subjects = [s for s in all_subjects if s not in set(test_subjects)]
+                if reverse_rows:
+                    test_subjects.reverse()
+                    inner_subjects.reverse()
+                test_labels = [labels[s] for s in test_subjects]
+                inner_labels = [labels[s] for s in inner_subjects]
+                folds.append({
+                    "repeat": 0,
+                    "outer_fold": outer_fold,
+                    "inner_subjects": inner_subjects,
+                    "inner_labels": inner_labels,
+                    "inner_scores": [[0.2 + 0.1 * labels[s]] * len(tasks) for s in inner_subjects],
+                    "train_token_counts": [[10] * len(tasks) for _ in inner_subjects],
+                    "test_subjects": test_subjects,
+                    "test_labels": test_labels,
+                    "test_scores": [[0.2 + 0.1 * labels[s]] * len(tasks) for s in test_subjects],
+                })
+            return load_bundle({"schema_version": 1, "tasks": tasks, "folds": folds})
+
+        original = make_bundle([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        reordered = make_bundle([("a", "b", "c", "d"), ("e", "f", "g", "h")],
+                                reverse_rows=True)
+        _compare_bundle_design(original, reordered)
+
+        reassigned = make_bundle([("a", "e", "c", "g"), ("b", "f", "d", "h")])
+        with self.assertRaisesRegex(ValueError, "identical test subjects and labels"):
+            _compare_bundle_design(original, reassigned)
+
+        reversed_tasks = make_bundle([("a", "b", "c", "d"), ("e", "f", "g", "h")],
+                                     tasks=["task_b", "task_a"])
+        with self.assertRaisesRegex(ValueError, "identical task IDs"):
+            _compare_bundle_design(original, reversed_tasks)
+
     def test_evaluate_writes_per_arm_bundles_and_replay_cli(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

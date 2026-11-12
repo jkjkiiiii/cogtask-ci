@@ -18,6 +18,31 @@ def _write_json_new(path, value):
         f.write("\n")
 
 
+def _compare_bundle_design(left, right):
+    """Require the same task axis and fold-wise subject/label assignments."""
+    if left["tasks"] != right["tasks"]:
+        raise ValueError("Replay comparison requires identical task IDs in the same order")
+    left_folds = {(fold["repeat"], fold["outer_fold"]): fold for fold in left["folds"]}
+    right_folds = {(fold["repeat"], fold["outer_fold"]): fold for fold in right["folds"]}
+    if set(left_folds) != set(right_folds):
+        raise ValueError("Replay comparison requires identical repeat/outer-fold IDs")
+
+    def subject_labels(fold, role):
+        subjects = fold[f"{role}_subjects"]
+        labels = fold[f"{role}_labels"]
+        return {subject: int(label) for subject, label in zip(subjects, labels)}
+
+    for key in sorted(left_folds):
+        a, b = left_folds[key], right_folds[key]
+        for role in ("test", "inner"):
+            left_labels = subject_labels(a, role)
+            right_labels = subject_labels(b, role)
+            if left_labels != right_labels:
+                raise ValueError(
+                    f"Replay comparison requires identical {role} subjects and labels in fold {key}"
+                )
+
+
 def _paired_policy_difference(left, right, policy, bootstrap, seed):
     """Compare one policy on identical replay subjects with paired resampling."""
     import numpy as np
@@ -168,6 +193,7 @@ def main(argv=None):
             from .replay import apply_bundle, load_bundle
             left_bundle = load_bundle(args.left)
             right_bundle = load_bundle(args.right)
+            _compare_bundle_design(left_bundle, right_bundle)
             left_result = apply_bundle(left_bundle, fixed_task=args.left_fixed_task,
                                        random_draws=args.random_draws, seed=args.seed)
             right_result = apply_bundle(right_bundle, fixed_task=args.right_fixed_task,

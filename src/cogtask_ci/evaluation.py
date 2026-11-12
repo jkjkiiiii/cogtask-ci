@@ -14,6 +14,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 from .data import load_dataset, describe, crop
 from .model import fit_predict
+from .replay import auc_rank
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,9 @@ def select_subsets(y, task_scores, tasks):
     for k in range(1, len(tasks) + 1):
         best, best_auc = None, -1
         for subset in combinations(range(len(tasks)), k):
-            auc = roc_auc_score(y, task_scores[:, subset].mean(axis=1))
+            # Keep the historical first-in-enumeration tie rule while using
+            # exact average ranks so last-bit ROC arithmetic cannot change it.
+            auc = auc_rank(y, task_scores[:, subset].mean(axis=1))
             if auc > best_auc:
                 best, best_auc = subset, float(auc)
         selected[k] = (best, best_auc)

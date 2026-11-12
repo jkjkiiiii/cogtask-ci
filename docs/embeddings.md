@@ -49,7 +49,7 @@ from cogtask_ci.embeddings import FrozenTextEmbedder
 encoder = FrozenTextEmbedder(
     "intfloat/multilingual-e5-small",
     revision="614241f622f53c4eeff9890bdc4f31cfecc418b3",
-    cache_dir=r"D:\Models\.huggingface\hub",
+    cache_dir="./model-cache",
     device="auto",
     max_tokens=512,
     batch_size=8,
@@ -103,12 +103,12 @@ order, the preprocessing version, model revision, local weight/config/tokenizer
 file hashes, relevant package versions, and embedding configuration. It accepts
 no labels and is not a cache of evaluation labels or predictions.
 
-For inference without network access, download the pinned model snapshot first
-and run with the Hugging Face offline setting supported by your environment.
-The model cache can be large; choose a dedicated cache directory rather than
-clearing a shared cache.
+For inference without network access, download the pinned model snapshot first,
+set `HF_HUB_OFFLINE=1`, and pass `local_files_only=True`. The model cache can be
+large; choose a dedicated cache directory rather than clearing a shared cache.
 
 ## Model references
 
 - [Multilingual E5-small model card](https://huggingface.co/intfloat/multilingual-e5-small)
 - [BGE-M3 model card](https://huggingface.co/BAAI/bge-m3)
+- [BGE-M3 CLS-pooling configuration at the pinned revision](https://huggingface.co/BAAI/bge-m3/blob/5617a9f61b028005a4858fdac845db406aefb181/1_Pooling/config.json)

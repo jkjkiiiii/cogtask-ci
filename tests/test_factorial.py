@@ -70,7 +70,23 @@ class SyntheticFactorial(unittest.TestCase):
                          original_token_counts=None):
             calls.append(arm)
             tasks = sorted({record.task for record in rows})
-            replay_collector[arm] = {"schema_version": 1, "tasks": tasks, "folds": []}
+            labels = {record.subject_id: record.label for record in rows}
+            folds = []
+            for outer_fold in range(config.outer_folds):
+                test_subjects = sorted(s for s in labels if assignments[0][s] == outer_fold)
+                inner_subjects = sorted(s for s in labels if assignments[0][s] != outer_fold)
+                folds.append({
+                    "repeat": 0,
+                    "outer_fold": outer_fold,
+                    "inner_subjects": inner_subjects,
+                    "inner_labels": [labels[s] for s in inner_subjects],
+                    "inner_scores": [[0.4 + 0.2 * labels[s]] * len(tasks) for s in inner_subjects],
+                    "train_token_counts": [[12] * len(tasks) for _ in inner_subjects],
+                    "test_subjects": test_subjects,
+                    "test_labels": [labels[s] for s in test_subjects],
+                    "test_scores": [[0.4 + 0.2 * labels[s]] * len(tasks) for s in test_subjects],
+                })
+            replay_collector[arm] = {"schema_version": 1, "tasks": tasks, "folds": folds}
             return [], [], []
 
         with tempfile.TemporaryDirectory() as td:
@@ -83,10 +99,59 @@ class SyntheticFactorial(unittest.TestCase):
             self.assertEqual(calls, ["text", "quantity"])
             self.assertFalse(first[0]["resumed"])
             self.assertTrue(second[0]["resumed"])
-            result = json.loads(next(output.glob("*/result.json")).read_text(encoding="utf-8"))
+            run_dir = next(output.iterdir())
+            result_path = run_dir / "result.json"
+            result = json.loads(result_path.read_text(encoding="utf-8"))
             self.assertEqual(result["status"], "complete")
             for arm in ("text", "quantity"):
-                self.assertTrue((next(output.iterdir()) / (arm + "_bundle.json")).is_file())
+                self.assertTrue((run_dir / (arm + "_bundle.json")).is_file())
+
+            # Simulate an interrupted legacy checkpoint between bundle write
+            # and hash-manifest update. The orphan is never trusted: regenerate
+            # it from the deterministic inputs and retain the valid sibling.
+            result["status"] = "running"
+            result["bundle_sha256"].pop("text")
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            (run_dir / "text_bundle.json").write_bytes(b"corrupt untracked orphan")
+            (run_dir / "quantity_bundle.json.tmp").write_bytes(b"partial temporary")
+            calls.clear()
+            with patch("cogtask_ci.factorial.run_arm", fake_run_arm):
+                resumed = run_factorial(output, seed_values=(42,), conditions=conditions,
+                                        subjects=40, config=config)
+            self.assertEqual(calls, ["text"])
+            self.assertTrue(resumed[0]["resumed"])
+            self.assertEqual(json.loads(result_path.read_text(encoding="utf-8"))["status"], "complete")
+            self.assertFalse((run_dir / "quantity_bundle.json.tmp").exists())
+            from cogtask_ci.replay import load_bundle
+            self.assertEqual(load_bundle(run_dir / "text_bundle.json")["tasks"],
+                             ["task_a", "task_b", "task_c"])
+
+            # Simulate the new journal order: hash committed, then process
+            # stopped before the atomic bundle replacement. Refit and require
+            # the deterministic output to match the recorded expected hash.
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["status"] = "running"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            (run_dir / "text_bundle.json").unlink()
+            calls.clear()
+            with patch("cogtask_ci.factorial.run_arm", fake_run_arm):
+                run_factorial(output, seed_values=(42,), conditions=conditions,
+                              subjects=40, config=config)
+            self.assertEqual(calls, ["text"])
+            self.assertTrue((run_dir / "text_bundle.json").is_file())
+
+            # A bundle whose recorded hash no longer matches is rejected,
+            # even though the runner could overwrite it with a fresh fit.
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["status"] = "running"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+            (run_dir / "text_bundle.json").write_bytes(b"altered tracked artifact")
+            calls.clear()
+            with patch("cogtask_ci.factorial.run_arm", fake_run_arm):
+                with self.assertRaisesRegex(ValueError, "Changed partial bundle"):
+                    run_factorial(output, seed_values=(42,), conditions=conditions,
+                                  subjects=40, config=config)
+            self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
