@@ -94,14 +94,14 @@ configuration, construction raises an error rather than silently weakening the
 determinism settings. Use a fresh process when changing runtime configuration.
 
 Keep the returned `runtime_metadata()` with each run. It records the exact
-model revision and local weight hash, pooling, prefix, token limit, batch size,
-device, seed, thread counts, deterministic settings, package versions, and
-hardware.
+model revision, local weight/config/tokenizer file hashes, pooling, prefix,
+token limit, batch size, device, seed, thread counts, deterministic settings,
+package versions, and hardware.
 
 `encoder.cache_key(segments)` hashes the preprocessed text segments and their
-order, the preprocessing version, model revision, local weight hash, and
-embedding configuration. It accepts no labels and is not a cache of evaluation
-labels or predictions.
+order, the preprocessing version, model revision, local weight/config/tokenizer
+file hashes, relevant package versions, and embedding configuration. It accepts
+no labels and is not a cache of evaluation labels or predictions.
 
 For inference without network access, download the pinned model snapshot first
 and run with the Hugging Face offline setting supported by your environment.

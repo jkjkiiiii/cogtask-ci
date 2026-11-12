@@ -27,9 +27,11 @@ def prepare(output):
         if '__pycache__' in relative.parts or any(p.endswith('.egg-info') for p in relative.parts) or path.suffix in {'.pyc', '.pyo'}:
             continue
         if relative.as_posix() in FILES or relative.parts[0] in DIRECTORIES:
-            if path.suffix not in {'.py', '.md', '.toml', '.in', '.cff', '.json', '.ipynb', '.yml'} and path.name not in {'.gitignore', 'LICENSE'}:
+            if path.suffix not in {'.py', '.md', '.toml', '.in', '.cff', '.json', '.ipynb', '.yml', '.csv', '.svg', '.png'} and path.name not in {'.gitignore', 'LICENSE'}:
                 raise ValueError('Unexpected file in release scope: ' + relative.as_posix())
-            text = path.read_text(encoding='utf-8')
+            if path.suffix == '.png' and relative.as_posix() != 'docs/assets/showcase.png':
+                raise ValueError('Unexpected image in release scope: ' + relative.as_posix())
+            text = '' if path.suffix == '.png' else path.read_text(encoding='utf-8')
             if re.search(r'[A-Za-z]:[\\/](?:Users|Projects|backup)[\\/]|(?:hf_|ghp_)[A-Za-z0-9]{20,}', text):
                 raise ValueError('Local path or credential candidate: ' + relative.as_posix())
             if path.suffix == '.ipynb':

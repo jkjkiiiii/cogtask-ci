@@ -51,13 +51,17 @@ class FrozenEmbeddingContracts(unittest.TestCase):
     weight_hash = "a" * 64
 
     def make_embedder(self, model_id="intfloat/multilingual-e5-small", **kwargs):
-        revision = self.e5_revision if model_id.startswith("intfloat/") else self.bge_revision
+        revision = kwargs.pop(
+            "revision",
+            self.e5_revision if model_id.startswith("intfloat/") else self.bge_revision,
+        )
+        weight_sha256 = kwargs.pop("weight_sha256", self.weight_hash)
         return FrozenTextEmbedder(
             model_id,
             revision,
             tokenizer=FakeTokenizer(),
             model=FakeModel(),
-            weight_sha256=self.weight_hash,
+            weight_sha256=weight_sha256,
             device="cpu",
             **kwargs,
         )
@@ -124,10 +128,14 @@ class FrozenEmbeddingContracts(unittest.TestCase):
     def test_cache_key_tracks_text_preprocessing_revision_weights_and_config(self):
         first = self.make_embedder(max_tokens=32)
         second = self.make_embedder(max_tokens=31)
+        changed_revision = self.make_embedder(max_tokens=32, revision="b" * 40)
+        changed_weights = self.make_embedder(max_tokens=32, weight_sha256="b" * 64)
         key = first.cache_key(["  e\u0301  ", "next segment"])
         self.assertEqual(key, first.cache_key(["é", "next segment"]))
         self.assertNotEqual(key, second.cache_key(["é", "next segment"]))
         self.assertNotEqual(key, first.cache_key(["different text"]))
+        self.assertNotEqual(key, changed_revision.cache_key(["é", "next segment"]))
+        self.assertNotEqual(key, changed_weights.cache_key(["é", "next segment"]))
 
     def test_empty_and_nonfinite_embeddings_fail_explicitly(self):
         embedder = self.make_embedder()
@@ -155,6 +163,8 @@ class FrozenEmbeddingContracts(unittest.TestCase):
         self.assertFalse(metadata["determinism"]["cudnn_benchmark"])
         self.assertEqual(metadata["threads"]["intra_op"], 1)
         self.assertIn("torch", metadata["packages"])
+        self.assertIn("tokenizers", metadata["packages"])
+        self.assertEqual(metadata["tokenizer_identity"]["class"], "test_embeddings.FakeTokenizer")
         self.assertIn("platform", metadata["hardware"])
 
 

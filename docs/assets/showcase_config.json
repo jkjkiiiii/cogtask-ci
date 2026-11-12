@@ -1,0 +1,67 @@
+{
+  "synthetic_only": true,
+  "subjects_per_scenario": 160,
+  "generator_seed": 20261103,
+  "scenarios": {
+    "complementary": {
+      "lexical_probability_by_group": {
+        "0": 0.2,
+        "1": 0.8
+      },
+      "tasks": "conditionally independent markers",
+      "length": "constant"
+    },
+    "redundant": {
+      "lexical_probability_by_group": {
+        "0": 0.2,
+        "1": 0.8
+      },
+      "tasks": "identical response copies",
+      "length": "constant"
+    },
+    "content_quantity": {
+      "lexical_probability_by_group": {
+        "0": 0.2,
+        "1": 0.8
+      },
+      "long_response_probability_by_group": {
+        "0": 0.35,
+        "1": 0.65
+      },
+      "copies": [
+        1,
+        4
+      ],
+      "independence": "lexical and length draws independent conditional on label"
+    },
+    "null": {
+      "lexical_probability_by_group": {
+        "0": 0.5,
+        "1": 0.5
+      },
+      "length": "constant"
+    }
+  },
+  "scenario_order": [
+    "complementary",
+    "redundant",
+    "content_quantity",
+    "null"
+  ],
+  "showcase_design_version": 2,
+  "task_order": [
+    "task_a",
+    "task_b",
+    "task_c"
+  ],
+  "evaluation": {
+    "outer_folds": 3,
+    "inner_folds": 2,
+    "repeats": 1,
+    "seed": 42,
+    "bootstrap": 500,
+    "token_budget": null,
+    "lowercase": false
+  },
+  "selection_note": "One prespecified seed/configuration; no selection based on resulting scores"
+}
