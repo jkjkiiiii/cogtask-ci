@@ -74,9 +74,9 @@ python -m cogtask_ci.factorial_summary results/factorial \
   --output results/factorial_summary
 ```
 
-The default expects all 36 conditions and 30 generation seeds (1,080 runs), and draws 1,000 random pair policies per arm. For a smaller fixture or partial sweep, call `summarize_factorial` from Python and supply its `expected_seeds`, `expected_runs`, and `expected_conditions`. The summary writes per-run metrics, task-selection counts, selection frequencies across seeds, and condition-level mean, sample SD, and quantiles. It reports E1 pair comparisons, E2 pair-selection and random-policy summaries, and E3 AUROC/Brier alongside selected task count and token burden relative to the best single task. A condition with missing runs remains explicitly incomplete; across-seed spread is not a participant-level confidence interval.
+The default expects all 36 conditions and 30 generation seeds (1,080 runs), and draws 1,000 random pair policies per arm. For a smaller fixture or partial sweep, call `summarize_factorial` from Python and supply its `expected_seeds`, `expected_runs`, and `expected_conditions`. The summary writes per-run metrics, task-selection counts, selection frequencies across seeds, and condition-level mean, sample SD, and quantiles. It reports E1 pair comparisons, E2 pair-selection and random-policy summaries, and E3 AUROC/Brier alongside selected task count and token burden relative to the unrestricted best subset. Unselected tasks contribute zero selection frequency. A condition with missing runs remains explicitly incomplete; across-seed spread is not a participant-level confidence interval.
 
-Replay caches are accepted only when the input bundle hash and replay-source hash match. The module can reuse `arm_replays/<run_id>__<arm>.json` artifacts produced by the private sweep driver when they carry those same provenance fields.
+Replay caches are accepted only when the input bundle hash and replay-source hash match. The module can reuse `arm_replays/<run_id>__<arm>.json` artifacts produced by another orchestration tool when they carry those same provenance fields.
 
 For the task-signal generator and runner from Python:
 

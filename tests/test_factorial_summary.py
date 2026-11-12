@@ -86,6 +86,13 @@ class FactorialSummaryTests(unittest.TestCase):
             self.assertTrue(e3)
             self.assertTrue(all(row["mean_selected_tasks"] != "" for row in e3))
             self.assertTrue(all(row["delta_mean_training_token_burden"] != "" for row in e3))
+            self.assertTrue(all(row["reference"] == "global_best_subset" for row in e3))
+            self.assertTrue(all(float(row["delta_auroc"]) == 0 for row in e3
+                                if row["policy"] == "global_best_subset"))
+            with (complete_out / "task_selection_summary.csv").open(encoding="utf-8-sig", newline="") as handle:
+                frequencies = list(csv.DictReader(handle))
+            self.assertTrue(all(row["status"] == "complete" for row in frequencies))
+            self.assertTrue(any(float(row["mean_frequency_across_seeds"]) == 0 for row in frequencies))
             with (complete_out / "condition_summary.csv").open(encoding="utf-8-sig", newline="") as handle:
                 summaries = list(csv.DictReader(handle))
             self.assertTrue(summaries)

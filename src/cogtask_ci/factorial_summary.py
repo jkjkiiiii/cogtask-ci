@@ -288,11 +288,11 @@ def _metrics_for_replay(replay, bundle, run, arm, bundle_sha, replay_sha,
         totals = fold["train_token_counts"][:, indices].sum(axis=1)
         return len(selected), float(np.median(totals))
 
-    global_burdens = [e3_burden(row, "global_best_single") for row in replay["selections"]]
+    global_burdens = [e3_burden(row, "global_best_subset") for row in replay["selections"]]
     global_mean_tasks = float(np.mean([item[0] for item in global_burdens]))
     global_mean_tokens = float(np.mean([item[1] for item in global_burdens]))
     for policy in ("global_best_subset", *(tolerance_key(t) for t in (0.00, 0.01, 0.02))):
-        add("E3_budget_policy", policy, "global_best_single")
+        add("E3_budget_policy", policy, "global_best_subset")
         burdens = [e3_burden(row, policy) for row in replay["selections"]]
         metrics[-1].update({
             "mean_selected_tasks": float(np.mean([item[0] for item in burdens])),
@@ -323,6 +323,10 @@ def _metrics_for_replay(replay, bundle, run, arm, bundle_sha, replay_sha,
         for selected in fold_map.values():
             _selected(counts, policy, selected)
             opportunities[policy] += 1
+    # An unselected task has zero frequency; it is not a missing dataset seed.
+    for policy in opportunities:
+        for task in tasks:
+            counts.setdefault((policy, task), 0)
     selection_counts = [
         {"policy": policy, "task": task, "count": count,
          "selection_opportunities": opportunities[policy]}
