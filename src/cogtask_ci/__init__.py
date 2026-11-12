@@ -1,5 +1,5 @@
 """Research evaluation, not a diagnostic model or clinical label mapping."""
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .data import load_dataset, validate_dataset, import_csv
 from .evaluation import Config, evaluate

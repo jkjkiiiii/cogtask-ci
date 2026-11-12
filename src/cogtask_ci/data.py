@@ -69,6 +69,16 @@ def describe(rows):
             "task_coverage": {t: sum(r.task == t for r in rows) for t in tasks}}
 
 
+def records_to_jsonl(rows):
+    """Serialize records as deterministic UTF-8 JSONL bytes without a BOM."""
+    lines = []
+    for record in rows:
+        value = {"subject_id": record.subject_id, "task": record.task,
+                 "label": record.label, "segments": [list(segment) for segment in record.segments]}
+        lines.append(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def validate_dataset(path, lowercase=False):
     return describe(load_dataset(path, lowercase))
 

@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "Please cite the software version used in your research. This file describes the software, not the associated manuscript."
 title: "CogTask-CI: Multi-task Text Evaluation for Cognitive Impairment Research"
 type: software
-version: 0.1.0
+version: 0.2.0
 authors:
   - name: "CogTask-CI contributors"
 license: MIT

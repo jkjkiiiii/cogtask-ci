@@ -1,5 +1,7 @@
 # Data, configuration and API reference
 
+For frozen prediction bundles, replay, paired bundle comparisons, total-token-budget refits and the synthetic factorial, see [evaluation reference](reference_evaluation.md).
+
 ## JSONL input
 
 ```json

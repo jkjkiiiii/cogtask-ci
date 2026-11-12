@@ -60,6 +60,20 @@ class Contracts(unittest.TestCase):
         self.assertEqual(paired[0]['gain_difference'], 0)
         self.assertEqual(paired[1]['gain_difference'], -.5)
 
+    def test_subset_selection_uses_exact_average_rank_for_ties(self):
+        from cogtask_ci.replay import auc_rank
+
+        y = [0, 0, 1, 1]
+        scores = np.array([[.1, .1], [.4, .4], [.6, .6], [.9, .9]])
+        # Simulate the last-bit discrepancy from ROC arithmetic: identical
+        # rankings must still keep the first task in enumeration order.
+        with patch("cogtask_ci.evaluation.roc_auc_score",
+                   side_effect=[0.5, 0.5000000000000001, 0.5]) as sklearn_auc:
+            selected = select_subsets(y, scores, ["first", "second"])
+        sklearn_auc.assert_not_called()
+        self.assertEqual(selected[1][0], (0,))
+        self.assertEqual(selected[1][1], auc_rank(y, scores[:, 0]))
+
     def test_csv_and_config(self):
         with tempfile.TemporaryDirectory() as td:
             src, dst = Path(td) / 'text.csv', Path(td) / 'out.jsonl'

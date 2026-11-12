@@ -14,6 +14,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 from .data import load_dataset, describe, crop
 from .model import fit_predict
+from .replay import auc_rank
 
 
 @dataclass(frozen=True)
@@ -23,8 +24,11 @@ class Config:
     repeats: int = 1
     seed: int = 42
     bootstrap: int = 2000
+    # ``token_budget`` is the 0.1.x spelling retained for source compatibility.
     token_budget: int | None = None
     lowercase: bool = False
+    token_budget_per_task: int | None = None
+    total_token_budget: int | None = None
 
     def validate(self):
         for name in ("outer_folds", "inner_folds", "repeats", "bootstrap", "seed"):
@@ -34,8 +38,31 @@ class Config:
             raise ValueError("Need folds>=2, repeats>=1, bootstrap>=1 and 0<=seed<2**31")
         if type(self.lowercase) is not bool:
             raise ValueError("lowercase must be a boolean")
-        if self.token_budget is not None and (type(self.token_budget) is not int or self.token_budget < 1):
-            raise ValueError("token_budget must be a positive integer")
+        budgets = [self.token_budget, self.token_budget_per_task, self.total_token_budget]
+        if sum(value is not None for value in budgets) > 1:
+            raise ValueError("Choose only one of token_budget, token_budget_per_task or total_token_budget")
+        for name, value in (("token_budget", self.token_budget),
+                            ("token_budget_per_task", self.token_budget_per_task),
+                            ("total_token_budget", self.total_token_budget)):
+            if value is not None and (type(value) is not int or value < 1):
+                raise ValueError(name + " must be a positive integer")
+
+    @property
+    def per_task_budget(self):
+        """Return the per-task budget, including the legacy spelling."""
+        return self.token_budget_per_task if self.token_budget_per_task is not None else self.token_budget
+
+
+def validate_total_token_budget(total_budget, n_tasks):
+    """Require exact equal integer allocation for every task count in an analysis."""
+    if type(total_budget) is not int or total_budget < 1:
+        raise ValueError("total_token_budget must be a positive integer")
+    if n_tasks < 1:
+        raise ValueError("At least one task is required")
+    invalid = [k for k in range(1, n_tasks + 1) if total_budget % k]
+    if invalid:
+        raise ValueError("total_token_budget must be divisible by every tested task count; "
+                         "not divisible by k=" + ",".join(map(str, invalid)))
 
 
 def write_csv(path, rows, fields=None):
@@ -121,17 +148,22 @@ def select_subsets(y, task_scores, tasks):
     for k in range(1, len(tasks) + 1):
         best, best_auc = None, -1
         for subset in combinations(range(len(tasks)), k):
-            auc = roc_auc_score(y, task_scores[:, subset].mean(axis=1))
+            # Keep the historical first-in-enumeration tie rule while using
+            # exact average ranks so last-bit ROC arithmetic cannot change it.
+            auc = auc_rank(y, task_scores[:, subset].mean(axis=1))
             if auc > best_auc:
                 best, best_auc = subset, float(auc)
         selected[k] = (best, best_auc)
     return selected
 
 
-def run_arm(rows, arm, config, assignments, logger):
+def run_arm(rows, arm, config, assignments, logger, replay_collector=None, original_token_counts=None):
     tasks, labels, lookup, complete = population(rows)
     subjects = sorted(labels)
-    predictions, selections, split_audit = [], [], []
+    predictions, selections, split_audit, replay_folds = [], [], [], []
+    original_token_counts = original_token_counts or {
+        (r.subject_id, r.task): r.n_tokens for r in rows
+    }
     for rep, assignment in enumerate(assignments):
         for outer in range(config.outer_folds):
             train = [s for s in subjects if assignment[s] != outer]
@@ -159,6 +191,18 @@ def run_arm(rows, arm, config, assignments, logger):
             outer_scores = np.column_stack([
                 fit_predict([lookup[s, t] for s in train if (s, t) in lookup], [lookup[s, t] for s in test], arm, config.seed)
                 for t in tasks])
+            replay_folds.append(dict(
+                repeat=rep,
+                outer_fold=outer,
+                inner_subjects=list(inner_eval),
+                inner_labels=[labels[s] for s in inner_eval],
+                inner_scores=inner_scores.tolist(),
+                train_token_counts=[[original_token_counts.get((s, task), 0) for task in tasks]
+                                    for s in inner_eval],
+                test_subjects=list(test),
+                test_labels=[labels[s] for s in test],
+                test_scores=outer_scores.tolist(),
+            ))
             logger.info("arm=%s repeat=%d outer_fold=%d train=%d test=%d", arm, rep, outer, len(train), len(test))
             for k, (subset, auc) in selected.items():
                 names = [tasks[i] for i in subset]
@@ -168,6 +212,95 @@ def run_arm(rows, arm, config, assignments, logger):
                 for i, s in enumerate(test):
                     predictions.append(dict(arm=arm, repeat=rep, outer_fold=outer, subject_id=s,
                                             label=labels[s], k=k, score=float(fused[i])))
+    if replay_collector is not None:
+        replay_collector[arm] = {"schema_version": 1, "tasks": tasks, "folds": replay_folds}
+    return predictions, selections, split_audit
+
+
+def run_total_budget_arm(rows, arm, config, assignments, total_token_budget, logger,
+                         replay_collector=None, original_token_counts=None):
+    """Fit task models separately at total_budget / k for each tested k."""
+    tasks, labels, lookup, complete = population(rows)
+    validate_total_token_budget(total_token_budget, len(tasks))
+    subjects = sorted(labels)
+    predictions, selections, split_audit = [], [], []
+    replay_folds_by_k = {k: [] for k in range(1, len(tasks) + 1)}
+    original_token_counts = original_token_counts or {
+        (r.subject_id, r.task): r.n_tokens for r in rows
+    }
+    for rep, assignment in enumerate(assignments):
+        for outer in range(config.outer_folds):
+            train = [s for s in subjects if assignment[s] != outer]
+            test = [s for s in complete if assignment[s] == outer]
+            if set(labels[s] for s in test) != {0, 1}:
+                raise ValueError("Every outer test fold needs both classes in the complete-task set")
+            inner_eval = sorted(set(train) & set(complete))
+            inner = allocate(train, inner_eval, labels, config.inner_folds, split_seed(config, rep, outer))
+            positions = {s: i for i, s in enumerate(inner_eval)}
+            # Folds are shared for every k, so the audit is written once per fold.
+            for fold in range(config.inner_folds):
+                for s in train:
+                    split_audit.append(dict(arm=arm, repeat=rep, outer_fold=outer, inner_fold=fold,
+                                            subject_id=s,
+                                            role=("validation" if s in positions else "held_out_incomplete")
+                                            if inner[s] == fold else "train"))
+            y_inner = [labels[s] for s in inner_eval]
+            for k in range(1, len(tasks) + 1):
+                per_task_budget = total_token_budget // k
+                inner_scores = np.full((len(inner_eval), len(tasks)), np.nan)
+                for fold in range(config.inner_folds):
+                    tr = [s for s in train if inner[s] != fold]
+                    va = [s for s in inner_eval if inner[s] == fold]
+                    for j, task in enumerate(tasks):
+                        training = [replace(lookup[s, task], segments=crop(lookup[s, task].segments, per_task_budget))
+                                    for s in tr if (s, task) in lookup]
+                        validation = [replace(lookup[s, task], segments=crop(lookup[s, task].segments, per_task_budget))
+                                      for s in va]
+                        scores = fit_predict(training, validation, arm, config.seed)
+                        inner_scores[[positions[s] for s in va], j] = scores
+                if not np.isfinite(inner_scores).all():
+                    raise ValueError("Total-budget inner OOF predictions are incomplete or nonfinite")
+                selected_subset, inner_auc = select_subsets(y_inner, inner_scores, tasks)[k]
+                outer_scores = np.column_stack([
+                    fit_predict(
+                        [replace(lookup[s, task], segments=crop(lookup[s, task].segments, per_task_budget))
+                         for s in train if (s, task) in lookup],
+                        [replace(lookup[s, task], segments=crop(lookup[s, task].segments, per_task_budget))
+                         for s in test],
+                        arm, config.seed)
+                    for task in tasks
+                ])
+                replay_folds_by_k[k].append(dict(
+                    repeat=rep,
+                    outer_fold=outer,
+                    inner_subjects=list(inner_eval),
+                    inner_labels=list(y_inner),
+                    inner_scores=inner_scores.tolist(),
+                    train_token_counts=[[original_token_counts.get((s, task), 0) for task in tasks]
+                                        for s in inner_eval],
+                    test_subjects=list(test),
+                    test_labels=[labels[s] for s in test],
+                    test_scores=outer_scores.tolist(),
+                ))
+                logger.info("arm=%s repeat=%d outer_fold=%d k=%d per_task_budget=%d train=%d test=%d",
+                            arm, rep, outer, k, per_task_budget, len(train), len(test))
+                selections.append(dict(arm=arm, repeat=rep, outer_fold=outer, k=k,
+                                       selected_tasks=json.dumps([tasks[i] for i in selected_subset]),
+                                       inner_auc=inner_auc))
+                fused = outer_scores[:, selected_subset].mean(axis=1)
+                for i, subject in enumerate(test):
+                    predictions.append(dict(arm=arm, repeat=rep, outer_fold=outer, subject_id=subject,
+                                            label=labels[subject], k=k, score=float(fused[i])))
+    if replay_collector is not None:
+        for k, folds in replay_folds_by_k.items():
+            key = f"{arm}_total{total_token_budget}_k{k}"
+            replay_collector[key] = {
+                "schema_version": 1,
+                "tasks": tasks,
+                "folds": folds,
+                "budget": {"mode": "total", "total_tokens": total_token_budget,
+                           "per_task_tokens": total_token_budget // k, "fixed_k": k},
+            }
     return predictions, selections, split_audit
 
 
@@ -208,7 +341,8 @@ def contrasts(predictions, bootstrap, seed):
     """Within-population paired arm differences, sharing subject resamples."""
     result = []
     arms = {r["arm"] for r in predictions}
-    for left, right in (("text", "quantity"), ("text_matched", "quantity_matched"), ("fixed_text", "text_matched")):
+    for left, right in (("text", "quantity"), ("text_matched", "quantity_matched"),
+                        ("fixed_text", "text_matched"), ("fixed_total_text", "text_matched")):
         if not {left, right}.issubset(arms):
             continue
         a = [r for r in predictions if r["arm"] == left]
@@ -252,6 +386,8 @@ def evaluate(input_path, output, config=None, splits=None):
     if output.exists():
         raise ValueError("Output directory must not exist")
     tasks, labels, lookup, complete = population(rows)
+    if config.total_token_budget is not None:
+        validate_total_token_budget(config.total_token_budget, len(tasks))
     assignments = outer_assignments(sorted(labels), complete, labels, config, splits)
     # Validate nested splits before creating a run or fitting anything.
     preflight(rows, assignments, config)
@@ -278,15 +414,44 @@ def evaluate(input_path, output, config=None, splits=None):
         coverage = describe(rows)
         coverage["excluded_from_common_evaluation"] = sorted(set(labels) - set(complete))
         jobs = [("text", rows, assignments), ("quantity", rows, assignments)]
-        if config.token_budget:
-            eligible = sorted(s for s in complete if all(lookup[s, t].n_tokens >= config.token_budget for t in tasks))
+        total_budget_job = None
+        token_budget_per_task = config.per_task_budget
+        original_token_counts = {(r.subject_id, r.task): r.n_tokens for r in rows}
+        if token_budget_per_task is not None:
+            eligible = sorted(s for s in complete
+                              if all(lookup[s, t].n_tokens >= token_budget_per_task for t in tasks))
+            eligible_set = set(eligible)
             coverage["fixed_budget_subjects"] = len(eligible)
-            coverage["excluded_from_fixed_budget"] = sorted(set(labels) - set(eligible))
-            matched = [r for r in rows if r.subject_id in set(eligible)]
+            coverage["excluded_from_fixed_budget"] = sorted(set(labels) - eligible_set)
+            coverage["per_task_token_budget"] = token_budget_per_task
+            matched = [r for r in rows if r.subject_id in eligible_set]
             # Reuse original outer fold identities, never optimize folds on outcomes.
-            ma = [{s: a[s] for s in eligible} for a in assignments]
-            jobs.extend([("text_matched", matched, ma), ("quantity_matched", matched, ma),
-                         ("fixed_text", [replace(r, segments=crop(r.segments, config.token_budget)) for r in matched], ma)])
+            matched_assignments = [{s: assignment[s] for s in eligible} for assignment in assignments]
+            jobs.extend([
+                ("text_matched", matched, matched_assignments),
+                ("quantity_matched", matched, matched_assignments),
+                ("fixed_text", [replace(r, segments=crop(r.segments, token_budget_per_task))
+                                for r in matched], matched_assignments),
+            ])
+        elif config.total_token_budget is not None:
+            total = config.total_token_budget
+            # Use one common population for all k. This rule also covers the
+            # largest per-task prefix, which occurs at k=1.
+            eligible = sorted(s for s in complete
+                              if all(lookup[s, t].n_tokens >= total for t in tasks))
+            eligible_set = set(eligible)
+            coverage["total_budget_subjects"] = len(eligible)
+            coverage["excluded_from_total_budget"] = sorted(set(labels) - eligible_set)
+            coverage["total_token_budget"] = total
+            coverage["total_budget_population_rule"] = (
+                "complete-task subjects with at least total_token_budget tokens in every task")
+            matched = [r for r in rows if r.subject_id in eligible_set]
+            matched_assignments = [{s: assignment[s] for s in eligible} for assignment in assignments]
+            jobs.extend([
+                ("text_matched", matched, matched_assignments),
+                ("quantity_matched", matched, matched_assignments),
+            ])
+            total_budget_job = ("fixed_total_text", matched, matched_assignments)
         save_json(output / "coverage.json", coverage)
         all_predictions, all_selections, all_audit = [], [], []
         for arm, records, arm_assignments in jobs:
@@ -294,11 +459,32 @@ def evaluate(input_path, output, config=None, splits=None):
                 preflight(records, arm_assignments, config)
             except ValueError as e:
                 raise ValueError(f"Arm {arm}: {e}") from e
+        if total_budget_job is not None:
+            try:
+                preflight(total_budget_job[1], total_budget_job[2], config)
+            except ValueError as e:
+                raise ValueError(f"Arm {total_budget_job[0]}: {e}") from e
+        replay_collector = {}
         for arm, records, arm_assignments in jobs:
-            p, s, audit = run_arm(records, arm, config, arm_assignments, logger)
+            p, s, audit = run_arm(records, arm, config, arm_assignments, logger,
+                                  replay_collector=replay_collector,
+                                  original_token_counts=original_token_counts)
             all_predictions.extend(p)
             all_selections.extend(s)
             all_audit.extend(audit)
+        if total_budget_job is not None:
+            arm, records, arm_assignments = total_budget_job
+            p, s, audit = run_total_budget_arm(records, arm, config, arm_assignments,
+                                               config.total_token_budget, logger,
+                                               replay_collector=replay_collector,
+                                               original_token_counts=original_token_counts)
+            all_predictions.extend(p)
+            all_selections.extend(s)
+            all_audit.extend(audit)
+        replay_dir = output / "replay_bundles"
+        replay_dir.mkdir()
+        for arm, bundle in replay_collector.items():
+            save_json(replay_dir / (arm + ".json"), bundle)
         write_csv(output / "predictions.csv", all_predictions)
         write_csv(output / "selections.csv", all_selections)
         write_csv(output / "inner_split_audit.csv", all_audit)

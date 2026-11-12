@@ -4,9 +4,36 @@
 
 Evaluate the predictive value and complementarity of multiple text tasks with participant-level nested cross-validation. Bring your own authorized, pre-cleaned text and binary research labels. No pretrained diagnostic model, clinical label mapping, corpus download or server is included.
 
-**MIT-licensed · Python 3.10+** · [Source repository](https://github.com/jkjkiiiii/cogtask-ci). No PyPI release is advertised. [Licence](LICENSE), [quickstart](docs/quickstart.md), [data/configuration reference](docs/reference.md), [related publication](docs/related_publication.md).
+**MIT-licensed · Python 3.10+** · [Source repository](https://github.com/jkjkiiiii/cogtask-ci). No PyPI release is advertised. [Licence](LICENSE), [quickstart](docs/quickstart.md), [data/configuration reference](docs/reference.md), [nested evaluation and replay reference](docs/reference_evaluation.md), [related publication](docs/related_publication.md).
 
 CogTask-CI is a research toolkit for evaluating task combinations on your own authorized text data. See [related publication](docs/related_publication.md) for the associated article title.
+
+The [0.2.0 candidate changes](docs/changes_0_2.md) add frozen-prediction replay, reference-aware selection, paired comparisons and optional frozen text embeddings.
+
+The [complete synthetic factorial](docs/synthetic_factorial.md) provides 36 conditions across 30 dataset seeds, with reproducible aggregate results and task-selection frequencies.
+
+## See what the toolkit does
+
+![Four synthetic examples: complementary signals, duplicated information, information beyond response quantity and no designed label signal](docs/assets/showcase.png)
+
+**Entirely synthetic data, not clinical performance.** Each panel is an actual nested evaluation of readable, templated English sentences with artificial Group 0/1 labels. Curves show text and token-count models; bands are conditional pointwise 95% participant-bootstrap intervals. One fixed seed/configuration was used without searching for favorable results.
+
+| Example | What to look for |
+|---|---|
+| **A · Complementary** | Independent artificial lexical signals can add useful information across tasks. |
+| **B · Redundant** | Reusing the same response across tasks adds no new information. |
+| **C · Beyond quantity** | Independent lexical information can add discrimination beyond an informative token-count baseline. |
+| **D · Null** | Without a designed signal, finite-sample estimates can fluctuate around chance. |
+
+[Explore the examples](docs/examples.md) · [SVG figure](docs/assets/showcase.svg) · [Synthetic aggregate values](docs/assets/showcase_summary.csv) · [Paired comparisons](docs/assets/showcase_contrasts.csv) · [Fixed configuration](docs/assets/showcase_config.json)
+
+Rebuild the overview after installing this source version:
+
+```console
+python -m cogtask_ci showcase --output results/showcase --assets docs/assets --replace-assets
+```
+
+The interactive [four-scenario walkthrough](examples/03_synthetic_showcase.ipynb) uses smaller settings for speed. The [CSV workflow](examples/04_csv_workflow.ipynb) demonstrates importing your own format and handling a missing task, using synthetic input only.
 
 ## Install and try
 

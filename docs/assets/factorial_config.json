@@ -1,0 +1,72 @@
+{
+  "kind": "entirely synthetic aggregate results",
+  "datasets": 1080,
+  "conditions": 36,
+  "dataset_seeds": [
+    20261112,
+    20261113,
+    20261114,
+    20261115,
+    20261116,
+    20261117,
+    20261118,
+    20261119,
+    20261120,
+    20261121,
+    20261122,
+    20261123,
+    20261124,
+    20261125,
+    20261126,
+    20261127,
+    20261128,
+    20261129,
+    20261130,
+    20261131,
+    20261132,
+    20261133,
+    20261134,
+    20261135,
+    20261136,
+    20261137,
+    20261138,
+    20261139,
+    20261140,
+    20261141
+  ],
+  "subjects": 200,
+  "tasks": 3,
+  "outer_folds": 3,
+  "inner_folds": 3,
+  "repeats": 1,
+  "split_seed": 42,
+  "random_pair_policies_per_arm": 1000,
+  "random_pair_seed_start": 20261112,
+  "base_sensitivity_specificity": [
+    0.6,
+    0.7,
+    0.8
+  ],
+  "added_tasks": [
+    "no_information",
+    "duplicated",
+    "complementary"
+  ],
+  "complementary_sensitivity_specificity": 0.75,
+  "positive_fractions": [
+    0.5,
+    0.3
+  ],
+  "quantity_long_probabilities": [
+    0.35,
+    0.65
+  ],
+  "short_long_tokens": [
+    12,
+    48
+  ],
+  "fit_code_commit": "66a4978170ebfb0cd0a822a3784f4535fb9fc754",
+  "summary_code_commit": "5d1fb5ed59b546e3d777aaa82c50858f84735bf0",
+  "summary_sha256": "448e54e65d272688ffb0975304e88d72e8afebe5a9ca7503a516f6c046aa3b97",
+  "uncertainty": "Mean, sample SD and quantiles across 30 independent generated datasets; not clinical confidence intervals"
+}

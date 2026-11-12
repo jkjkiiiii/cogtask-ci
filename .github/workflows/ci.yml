@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ['3.10', '3.13']
+        python: ['3.10', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +19,8 @@ jobs:
       - run: cogtask-ci demo --output results/ci_demo --subjects 30
       - run: python -m nbconvert --to notebook --execute examples/01_quickstart.ipynb --output-dir results/executed
       - run: python -m nbconvert --to notebook --execute examples/02_task_complementarity.ipynb --output-dir results/executed
+      - run: python -m nbconvert --to notebook --execute examples/03_synthetic_showcase.ipynb --output-dir results/executed
+      - run: python -m nbconvert --to notebook --execute examples/04_csv_workflow.ipynb --output-dir results/executed
       - run: python -m build
       - run: python scripts/check_repository.py
       - run: python scripts/prepare_release.py --output releases/cogtask-ci-source.zip
