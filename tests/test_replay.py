@@ -134,6 +134,34 @@ class ReplayValidation(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "identical outer subject sets"):
             validate_bundle(bad)
 
+    def test_total_budget_metadata_is_validated_and_preserved(self):
+        bundle = _bundle()
+        budget = {"mode": "total", "total_tokens": 12,
+                  "per_task_tokens": 6, "fixed_k": 2}
+        bundle["budget"] = budget
+        clean = validate_bundle(bundle)
+        self.assertEqual(clean["budget"], budget)
+        self.assertEqual(load_bundle(bundle)["budget"], budget)
+
+        for invalid in (
+            {"mode": "per_task", "total_tokens": 12, "per_task_tokens": 6, "fixed_k": 2},
+            {"mode": "total", "total_tokens": 12, "per_task_tokens": 5, "fixed_k": 2},
+            {"mode": "total", "total_tokens": 12, "per_task_tokens": 3, "fixed_k": 4},
+            {"mode": "total", "total_tokens": 10, "per_task_tokens": 3, "fixed_k": 3},
+            {"mode": "total", "total_tokens": True, "per_task_tokens": 6, "fixed_k": 2},
+        ):
+            bad = _bundle()
+            bad["budget"] = invalid
+            with self.assertRaises(ValueError):
+                validate_bundle(bad)
+
+    def test_generic_replay_rejects_fixed_total_budget_bundle(self):
+        bundle = _bundle()
+        bundle["budget"] = {"mode": "total", "total_tokens": 12,
+                            "per_task_tokens": 6, "fixed_k": 2}
+        with self.assertRaisesRegex(ValueError, "distinct fitted input"):
+            apply_bundle(bundle, "alpha", random_draws=0)
+
 
 class ReplaySelection(unittest.TestCase):
     def test_rankdata_ties_and_new_tolerance_burden_tiebreak(self):

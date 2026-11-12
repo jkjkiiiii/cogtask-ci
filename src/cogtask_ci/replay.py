@@ -93,11 +93,37 @@ def validate_bundle(bundle):
         raise ValueError("tasks must contain non-empty strings")
     if len(set(tasks)) != len(tasks):
         raise ValueError("tasks contains duplicate task IDs")
+
+    budget = None
+    if "budget" in bundle:
+        supplied_budget = bundle["budget"]
+        budget_fields = {"mode", "total_tokens", "per_task_tokens", "fixed_k"}
+        if not isinstance(supplied_budget, Mapping):
+            raise ValueError("budget must be a mapping")
+        if set(supplied_budget) != budget_fields:
+            raise ValueError("budget must contain exactly mode,total_tokens,per_task_tokens,fixed_k")
+        if supplied_budget["mode"] != "total":
+            raise ValueError("budget.mode must be 'total'")
+        total_tokens = _integer(supplied_budget["total_tokens"], "budget.total_tokens", minimum=1)
+        per_task_tokens = _integer(supplied_budget["per_task_tokens"], "budget.per_task_tokens", minimum=1)
+        fixed_k = _integer(supplied_budget["fixed_k"], "budget.fixed_k", minimum=1)
+        if fixed_k > len(tasks):
+            raise ValueError("budget.fixed_k cannot exceed the number of tasks")
+        if total_tokens % fixed_k != 0 or per_task_tokens != total_tokens // fixed_k:
+            raise ValueError("budget.per_task_tokens must equal total_tokens / fixed_k exactly")
+        budget = {
+            "mode": "total",
+            "total_tokens": total_tokens,
+            "per_task_tokens": per_task_tokens,
+            "fixed_k": fixed_k,
+        }
     folds = bundle.get("folds")
     if not isinstance(folds, list) or not folds:
         raise ValueError("folds must be a non-empty list")
 
     normalized = {"schema_version": 1, "tasks": list(tasks), "folds": []}
+    if budget is not None:
+        normalized["budget"] = budget
     by_repeat = {}
     fold_keys = set()
     label_by_subject = {}
@@ -320,6 +346,11 @@ def apply_bundle(bundle, fixed_task, random_draws=1000, seed=20261112):
     and labels in the input bundle. No model fitting or corpus access occurs.
     """
     clean = validate_bundle(bundle)
+    if clean.get("budget", {}).get("mode") == "total":
+        raise ValueError(
+            "Generic apply_bundle cannot replay fixed-total-budget fit bundles: "
+            "each fixed_k value is a distinct fitted input, so E2/E3 require a k-specific analysis."
+        )
     tasks = clean["tasks"]
     if not isinstance(fixed_task, str) or fixed_task not in tasks:
         raise ValueError("fixed_task must match one of the bundle task IDs")
